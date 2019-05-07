@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"sort"
 
-	"github.com/kelindar/binary"
+	"github.com/hunjixin/binary"
 )
 
 // IntsCodecAs returns an int slice codec with the specified precision and type.

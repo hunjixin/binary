@@ -6,7 +6,7 @@ package unsafe
 import (
 	"testing"
 
-	"github.com/kelindar/binary"
+	"github.com/hunjixin/binary"
 	"github.com/stretchr/testify/assert"
 )
 

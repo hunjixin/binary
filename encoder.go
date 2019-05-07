@@ -6,6 +6,8 @@ package binary
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"io"
 	"math"
 	"reflect"
@@ -19,6 +21,17 @@ var encoders = &sync.Pool{New: func() interface{} {
 
 // Marshal encodes the payload into binary format.
 func Marshal(v interface{}) (output []byte, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if je, ok := r.(error); ok {
+				err = je
+			} else {
+				fmt.Println(r)
+				err = errors.New("marshal error")
+			}
+		}
+	}()
+
 	var buffer bytes.Buffer
 
 	// Get the encoder from the pool, reset it

@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"unsafe"
 
-	"github.com/kelindar/binary"
+	"github.com/hunjixin/binary"
 )
 
 type integerSliceCodec struct {

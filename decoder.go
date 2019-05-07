@@ -6,6 +6,7 @@ package binary
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"reflect"
@@ -25,7 +26,16 @@ type Reader interface {
 
 // Unmarshal decodes the payload from the binary format.
 func Unmarshal(b []byte, v interface{}) (err error) {
-
+	defer func() {
+		if r := recover(); r != nil {
+			if je, ok := r.(error); ok {
+				err = je
+			} else {
+				fmt.Println(r)
+				err = errors.New("Unmarshal error")
+			}
+		}
+	}()
 	// Get the decoder from the pool, reset it
 	d := decoders.Get().(*Decoder)
 	d.r.(*reader).Reset(b) // Reset the reader

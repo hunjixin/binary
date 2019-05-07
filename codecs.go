@@ -6,6 +6,7 @@ package binary
 import (
 	"encoding/binary"
 	"errors"
+	"math/big"
 	"reflect"
 )
 
@@ -43,8 +44,7 @@ func (c *reflectArrayCodec) EncodeTo(e *Encoder, rv reflect.Value) (err error) {
 func (c *reflectArrayCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
 	l := rv.Type().Len()
 	for i := 0; i < l; i++ {
-		v := reflect.Indirect(rv.Index(i))
-		if err = c.elemCodec.DecodeTo(d, v); err != nil {
+		if err = c.elemCodec.DecodeTo(d, rv.Index(i)); err != nil {
 			return
 		}
 	}
@@ -76,8 +76,7 @@ func (c *reflectSliceCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
 	if l, err = binary.ReadUvarint(d.r); err == nil && l > 0 {
 		rv.Set(reflect.MakeSlice(rv.Type(), int(l), int(l)))
 		for i := 0; i < int(l); i++ {
-			v := reflect.Indirect(rv.Index(i))
-			if err = c.elemCodec.DecodeTo(d, v); err != nil {
+			if err = c.elemCodec.DecodeTo(d, rv.Index(i)); err != nil {
 				return
 			}
 		}
@@ -109,6 +108,31 @@ func (c *byteSliceCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
 	return
 }
 
+type byteArrayCodec struct{}
+
+// Encode encodes a value into the encoder.
+func (c *byteArrayCodec) EncodeTo(e *Encoder, rv reflect.Value) (err error) {
+	arr := make([]byte, rv.Len())
+	for i:=0;i < rv.Len(); i++{
+		ele := rv.Index(i).Interface().(byte)
+		arr[i] = ele
+	}
+	e.Write(arr)
+	return
+}
+
+// Decode decodes into a reflect value from the decoder.
+func (c *byteArrayCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
+	l := rv.Len()
+	byteArray := make([]byte, l) //rv.Interface().([l]byte)
+	if _, err = d.Read(byteArray[:]); err == nil {
+		for index, val := range byteArray {
+			rv.Index(index).Set(reflect.ValueOf(val))
+		}
+	}
+	return
+}
+
 // ------------------------------------------------------------------------------
 
 type boolSliceCodec struct{}
@@ -135,6 +159,34 @@ func (c *boolSliceCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
 	return
 }
 
+type boolArrayCodec struct{}
+
+// Encode encodes a value into the encoder.
+func (c *boolArrayCodec) EncodeTo(e *Encoder, rv reflect.Value) (err error) {
+	arr := make([]byte, rv.Len())
+	for i:=0;i < rv.Len(); i++{
+		ele := rv.Index(i).Interface().(bool)
+		if ele {
+			arr[i] = 1
+		}else {
+			arr[i] = 0
+		}
+	}
+	e.Write(arr[:])
+	return
+}
+
+
+// Decode decodes into a reflect value from the decoder.
+func (c *boolArrayCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
+	l := rv.Len()
+	buf := make([]byte, l)
+	_, err = d.r.Read(buf)
+	for index, val := range binaryToBools(&buf) {
+		rv.Index(index).Set(reflect.ValueOf(val))
+	}
+	return
+}
 // ------------------------------------------------------------------------------
 
 type varintSliceCodec struct{}
@@ -166,6 +218,27 @@ func (c *varintSliceCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
 	return
 }
 
+type varintArrayCodec struct{}
+
+// Encode encodes a value into the encoder.
+func (c *varintArrayCodec) EncodeTo(e *Encoder, rv reflect.Value) (err error) {
+	l := rv.Len()
+	for i := 0; i < l; i++ {
+		e.WriteVarint(rv.Index(i).Int())
+	}
+	return
+}
+
+// Decode decodes into a reflect value from the decoder.
+func (c *varintArrayCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
+	l := rv.Len()
+	for i := 0; i < int(l); i++ {
+		if v, err := binary.ReadVarint(d.r); err == nil {
+			rv.Index(i).SetInt(v)
+		}
+	}
+	return
+}
 // ------------------------------------------------------------------------------
 
 type varuintSliceCodec struct{}
@@ -196,6 +269,28 @@ func (c *varuintSliceCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
 	return
 }
 
+type varuintArrayCodec struct{}
+
+// Encode encodes a value into the encoder.
+func (c *varuintArrayCodec) EncodeTo(e *Encoder, rv reflect.Value) (err error) {
+	l := rv.Len()
+	for i := 0; i < l; i++ {
+		e.WriteUvarint(rv.Index(i).Uint())
+	}
+	return
+}
+
+// Decode decodes into a reflect value from the decoder.
+func (c *varuintArrayCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
+	l := rv.Len()
+	for i := 0; i < int(l); i++ {
+		if v, err := d.ReadUvarint(); err == nil {
+			rv.Index(i).SetUint(v)
+		}
+	}
+	return
+}
+
 // ------------------------------------------------------------------------------
 
 type reflectStructCodec []fieldCodec
@@ -209,7 +304,7 @@ type fieldCodec struct {
 func (c *reflectStructCodec) EncodeTo(e *Encoder, rv reflect.Value) (err error) {
 	for _, i := range *c {
 		if err = i.Codec.EncodeTo(e, rv.Field(i.Index)); err != nil {
-			return
+			return err
 		}
 	}
 	return
@@ -219,14 +314,42 @@ func (c *reflectStructCodec) EncodeTo(e *Encoder, rv reflect.Value) (err error) 
 func (c *reflectStructCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
 	for _, i := range *c {
 		if v := rv.Field(i.Index); v.CanSet() {
-			if err = i.Codec.DecodeTo(d, reflect.Indirect(v)); err != nil {
-				return
+			if err = i.Codec.DecodeTo(d, v); err != nil {
+				return err
 			}
 		}
 	}
 	return
 }
 
+type reflectPtrCodec struct {
+	Codec Codec
+}
+
+// Encode encodes a value into the encoder.
+func (c *reflectPtrCodec) EncodeTo(e *Encoder, rv reflect.Value) (err error) {
+	if rv.IsNil(){
+		e.writeBool(true)
+	} else {
+		e.writeBool(false)
+		return c.Codec.EncodeTo(e, rv.Elem())
+	}
+	return
+}
+
+// Decode decodes into a reflect value from the decoder.
+func (c *reflectPtrCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
+	isNil, err := d.ReadBool()
+	if isNil {
+		return nil
+	}else{
+		v := rv.Type().Elem()
+		zeroV := reflect.New(v)
+		rv.Set(zeroV)
+		return c.Codec.DecodeTo(d, rv.Elem())
+	}
+	return
+}
 // ------------------------------------------------------------------------------
 
 // customCodec represents a custom binary marshaling.
@@ -339,7 +462,7 @@ func (c *reflectMapCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
 				return
 			}
 
-			vv := reflect.Indirect(reflect.New(vt))
+			vv := reflect.New(vt).Elem()
 			if err = c.val.DecodeTo(d, vv); err != nil {
 				return
 			}
@@ -427,7 +550,7 @@ func (c *reflectMapCodec) readKey(d *Decoder, keyType reflect.Type) (key reflect
 
 	// Default to a reflect-based approach
 	default:
-		key = reflect.Indirect(reflect.New(keyType))
+		key = reflect.New(keyType)
 		err = c.key.DecodeTo(d, key)
 	}
 	return
@@ -589,4 +712,178 @@ func (c *float64Codec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
 		rv.SetFloat(v)
 	}
 	return
+}
+
+// ------------------------------------------------------------------------------
+
+type bigIntCodec struct{}
+
+// Encode encodes a value into the encoder.
+func (c *bigIntCodec) EncodeTo(e *Encoder, rv reflect.Value) error {
+	fff :=  rv.Interface().(big.Int)
+	contents := fff.Bytes()
+	e.WriteUvarint(uint64(len(contents)))
+	e.Write(contents)
+	return nil
+}
+
+// Decode decodes into a reflect value from the decoder.
+func (c *bigIntCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
+	len, err := d.ReadUvarint()
+	if err != nil {
+		return err
+	}
+	contents := make([]byte, len)
+	_, err = d.Read(contents)
+	if err != nil {
+		return err
+	}
+
+	rv.Set(reflect.ValueOf(*new (big.Int).SetBytes(contents)))
+	return nil
+}
+
+//
+type reflectInterfaceCodec struct {
+	Codec Codec
+}
+
+// Encode encodes a value into the encoder.
+func (c *reflectInterfaceCodec) EncodeTo(e *Encoder, rv reflect.Value) (err error) {
+	if rv.IsNil() {
+		e.writeBool(true)
+	}else{
+		e.writeBool(false)
+		realValue := getUnderlyingType(rv)
+		realCodeC, err := scanType(realValue.Type())
+		if err != nil {
+			return err
+		}
+		realCodeC.EncodeTo(e, realValue)
+	}
+
+	return
+}
+
+// Decode decodes into a reflect value from the decoder.
+func (c *reflectInterfaceCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
+	isNil, err := d.ReadBool()
+	if isNil {
+		return nil
+	}else{
+		realValue := getUnderlyingType(rv.Addr())
+		realCodeC, err := scanType(realValue.Type())
+		if err != nil {
+			return err
+		}
+		realCodeC.DecodeTo(d, realValue)
+	}
+	return
+}
+
+//
+type reflectDynamicArrayCodec struct {
+}
+
+// Encode encodes a value into the encoder.
+func (c *reflectDynamicArrayCodec) EncodeTo(e *Encoder, rv reflect.Value) (err error) {
+	l := rv.Type().Len()
+	for i := 0; i < l; i++ {
+		val := rv.Index(i)
+		if val.IsNil() {
+			e.writeBool(true)
+			continue
+		}
+		e.writeBool(false)
+		realValue := getUnderlyingType(val)
+		realCodeC, err := scanType(realValue.Type())
+		if err = realCodeC.EncodeTo(e, realValue); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Decode decodes into a reflect value from the decoder.
+func (c *reflectDynamicArrayCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
+	l := rv.Type().Len()
+	for i := 0; i < l; i++ {
+		isNil, err := d.ReadBool()
+		if err != nil {
+			return  err
+		}
+		if isNil {
+			continue
+		}
+		val := rv.Index(i)
+		realValue := getUnderlyingType(val)
+		realCodeC, err := scanType(realValue.Type())
+		newVal := reflect.New(realValue.Type()).Elem()
+		if err = realCodeC.DecodeTo(d, newVal); err != nil {
+			return err
+		}
+		val.Set(newVal)
+	}
+	return nil
+}
+//
+type reflectDynamicSliceCodec struct {
+}
+
+
+// Encode encodes a value into the encoder.
+func (c *reflectDynamicSliceCodec) EncodeTo(e *Encoder, rv reflect.Value) (err error) {
+	l := rv.Len()
+	e.WriteUvarint(uint64(l))
+	for i := 0; i < l; i++ {
+		val := reflect.Indirect(rv.Index(i).Addr())
+		if val.IsNil() {
+			e.writeBool(true)
+			continue
+		}
+		e.writeBool(false)
+		realValue := getUnderlyingType(val)
+		realCodeC, err := scanType(realValue.Type())
+		if err = realCodeC.EncodeTo(e, realValue); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Decode decodes into a reflect value from the decoder.
+func (c *reflectDynamicSliceCodec) DecodeTo(d *Decoder, rv reflect.Value) (err error) {
+	var l uint64
+	if l, err = binary.ReadUvarint(d.r); err == nil && l > 0 {
+		//rv.Set(reflect.MakeSlice(rv.Type(), int(l), int(l)))
+		for i := 0; i < int(l); i++ {
+			isNil, err := d.ReadBool()
+			if err != nil {
+				return  err
+			}
+			if isNil {
+				continue
+			}
+			val := rv.Index(i)
+			realValue := getUnderlyingType(val)
+			realCodeC, err := scanType(realValue.Type())
+			newVal := reflect.New(realValue.Type()).Elem()
+			if err = realCodeC.DecodeTo(d, newVal); err != nil {
+				return err
+			}
+			val.Set(newVal)
+		}
+	}
+	return nil
+}
+
+func getUnderlyingType(val reflect.Value) reflect.Value {
+	for {
+		if val.Kind() == reflect.Interface {
+			val = val.Elem()
+		}else{
+			break
+		}
+	}
+	return val
 }

@@ -5,16 +5,25 @@ package binary
 
 import (
 	"errors"
+	"math/big"
 	"reflect"
+	"strings"
 	"sync"
 )
 
 // Map of all the schemas we've encountered so far
 var schemas = new(sync.Map)
 
+var importCodec = new(sync.Map)
+
 // Scan gets a codec for the type and uses a cached schema if the type was
 // previously scanned.
 func scan(t reflect.Type) (c Codec, err error) {
+	// Attempt to load from cache first
+	if f, ok := importCodec.Load(t.String()); ok {
+		c = f.(Codec)
+		return
+	}
 
 	// Attempt to load from cache first
 	if f, ok := schemas.Load(t); ok {
@@ -38,6 +47,10 @@ func scan(t reflect.Type) (c Codec, err error) {
 
 // ScanType scans the type
 func scanType(t reflect.Type) (Codec, error) {
+	if f, ok := importCodec.Load(t.String()); ok {
+		return f.(Codec), nil
+	}
+
 	if custom, ok := scanCustomCodec(t); ok {
 		return custom, nil
 	}
@@ -48,15 +61,43 @@ func scanType(t reflect.Type) (Codec, error) {
 
 	switch t.Kind() {
 	case reflect.Array:
-		elemCodec, err := scanType(t.Elem())
-		if err != nil {
-			return nil, err
+		switch t.Elem().Kind() {
+			case reflect.Uint8:
+				return new(byteArrayCodec), nil
+			case reflect.Bool:
+				return new(boolArrayCodec), nil
+			case reflect.Uint:
+				fallthrough
+			case reflect.Uint16:
+				fallthrough
+			case reflect.Uint32:
+				fallthrough
+			case reflect.Uint64:
+				return new(varuintArrayCodec), nil
+
+			case reflect.Int:
+				fallthrough
+			case reflect.Int8:
+				fallthrough
+			case reflect.Int16:
+				fallthrough
+			case reflect.Int32:
+				fallthrough
+			case reflect.Int64:
+				return new(varintArrayCodec), nil
 		}
+		if t.Elem().Kind() == reflect.Interface {
+			return new(reflectDynamicArrayCodec), nil
+		}else{
+			elemCodec, err := scanType(t.Elem())
+			if err != nil {
+				return nil, err
+			}
 
-		return &reflectArrayCodec{
-			elemCodec: elemCodec,
-		}, nil
-
+			return &reflectArrayCodec{
+				elemCodec: elemCodec,
+			}, nil
+		}
 	case reflect.Slice:
 
 		// Fast-paths for simple numeric slices and string slices
@@ -89,17 +130,24 @@ func scanType(t reflect.Type) (Codec, error) {
 			return new(varintSliceCodec), nil
 
 		default:
-			elemCodec, err := scanType(t.Elem())
-			if err != nil {
-				return nil, err
-			}
+			if t.Elem().Kind() == reflect.Interface {
+				return new(reflectDynamicSliceCodec), nil
+			}else{
+				elemCodec, err := scanType(t.Elem())
+				if err != nil {
+					return nil, err
+				}
 
-			return &reflectSliceCodec{
-				elemCodec: elemCodec,
-			}, nil
+				return &reflectSliceCodec{
+					elemCodec: elemCodec,
+				}, nil
+			}
 		}
 
 	case reflect.Struct:
+		if f, ok := importCodec.Load(t.String()); ok {
+			return f.(Codec), nil
+		}
 		s := scanStruct(t)
 		var v reflectStructCodec
 		for _, i := range s.fields {
@@ -171,6 +219,18 @@ func scanType(t reflect.Type) (Codec, error) {
 
 	case reflect.Float64:
 		return new(float64Codec), nil
+	case reflect.Ptr:
+		codec, err := scanType(t.Elem())
+		if err != nil {
+			return nil, err
+		}
+
+		return &reflectPtrCodec{
+			Codec:codec,
+		}, nil
+	case reflect.Interface:
+		return &reflectInterfaceCodec{
+		}, nil
 	}
 
 	return nil, errors.New("binary: unsupported type " + t.String())
@@ -184,9 +244,24 @@ func scanStruct(t reflect.Type) (meta *scannedStruct) {
 	l := t.NumField()
 	meta = new(scannedStruct)
 	for i := 0; i < l; i++ {
-		if t.Field(i).Name != "_" {
-			meta.fields = append(meta.fields, i)
+		val := t.Field(i).Tag.Get("binary")
+		if val != "" {
+			tagsValue := strings.Split(val, ",")
+			skip := false
+			for _, val := range tagsValue {
+				if strings.Contains(val, "ignore"){
+					skip = true
+					break
+				}
+			}
+			if skip {
+				continue
+			}
 		}
+		if t.Field(i).Name == "_" {
+			continue
+		}
+		meta.fields = append(meta.fields, i)
 	}
 	return
 }
@@ -225,4 +300,16 @@ func scanCustomCodec(t reflect.Type) (out Codec, ok bool) {
 		}
 	}
 	return
+}
+
+func ImportCodeC(t reflect.Type, codec Codec) {
+	if t.Kind() == reflect.Ptr {
+		 panic(errors.New("type you import is a ptr"))
+	}
+
+	importCodec.Store(t.String(), codec)
+}
+
+func init(){
+	ImportCodeC(reflect.TypeOf(big.Int{}), &bigIntCodec{})
 }
