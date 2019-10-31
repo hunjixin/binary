@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"unsafe"
 
-	"github.com/hunjixin/binary"
+	"github.com/drep-project/binary"
 )
 
 type integerSliceCodec struct {

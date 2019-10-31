@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"reflect"
@@ -26,8 +25,7 @@ func Marshal(v interface{}) (output []byte, err error) {
 			if je, ok := r.(error); ok {
 				err = je
 			} else {
-				fmt.Println(r)
-				err = errors.New("marshal error")
+				err = errors.New("Marshal fail")
 			}
 		}
 	}()

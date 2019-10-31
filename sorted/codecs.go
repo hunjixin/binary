@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"sort"
 
-	"github.com/hunjixin/binary"
+	"github.com/drep-project/binary"
 )
 
 // IntsCodecAs returns an int slice codec with the specified precision and type.

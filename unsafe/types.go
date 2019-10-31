@@ -6,7 +6,7 @@ package unsafe
 import (
 	"reflect"
 
-	"github.com/hunjixin/binary"
+	"github.com/drep-project/binary"
 )
 
 // ------------------------------------------------------------------------------

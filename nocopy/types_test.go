@@ -6,7 +6,7 @@ package nocopy
 import (
 	"testing"
 
-	"github.com/hunjixin/binary"
+	"github.com/drep-project/binary"
 	"github.com/stretchr/testify/assert"
 )
 

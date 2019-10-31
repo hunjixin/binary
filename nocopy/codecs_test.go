@@ -6,7 +6,7 @@ package nocopy
 import (
 	"testing"
 
-	"github.com/hunjixin/binary"
+	"github.com/drep-project/binary"
 )
 
 const testString = "Donec egestas enim vitae turpis imperdiet ultricies. Vivamus sollicitudin in felis quis euismod. Nunc at tellus lectus."

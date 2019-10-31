@@ -29,10 +29,9 @@ func Unmarshal(b []byte, v interface{}) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if je, ok := r.(error); ok {
-				err = je
+				err =  fmt.Errorf("%s, bianay %v, destType %T", je.Error(), b, v)
 			} else {
-				fmt.Println(r)
-				err = errors.New("Unmarshal error")
+				err = fmt.Errorf("%v, bianay %v, destType  %T", r, b, v)
 			}
 		}
 	}()

@@ -87,7 +87,7 @@ func scanType(t reflect.Type) (Codec, error) {
 				return new(varintArrayCodec), nil
 		}
 		if t.Elem().Kind() == reflect.Interface {
-			return new(reflectDynamicArrayCodec), nil
+			return new(reflectInterfaceArrayCodec), nil
 		}else{
 			elemCodec, err := scanType(t.Elem())
 			if err != nil {
@@ -131,7 +131,7 @@ func scanType(t reflect.Type) (Codec, error) {
 
 		default:
 			if t.Elem().Kind() == reflect.Interface {
-				return new(reflectDynamicSliceCodec), nil
+				return new(reflectInterfaceSliceCodec), nil
 			}else{
 				elemCodec, err := scanType(t.Elem())
 				if err != nil {
@@ -304,7 +304,7 @@ func scanCustomCodec(t reflect.Type) (out Codec, ok bool) {
 
 func ImportCodeC(t reflect.Type, codec Codec) {
 	if t.Kind() == reflect.Ptr {
-		 panic(errors.New("type you import is a ptr"))
+		 panic(errors.New("the type you import is a ptr"))
 	}
 
 	importCodec.Store(t.String(), codec)
